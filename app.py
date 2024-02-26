@@ -1,34 +1,53 @@
 from flask import Flask, render_template, redirect, url_for, request
-from peewee import *
+from peewee import Model, TextField, PostgresqlDatabase
+import psycopg2
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-# from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
+import secrets
 
 app = Flask(__name__)
 app.config.from_object(__name__)
+app.secret_key = str(secrets.token_hex())
 
-DATABASE = 'postgresql://postgres:1234@localhost:5432/hw2'
-db = PostgresqlDatabase('hw2', user='postgres', password='1234', host='localhost', port=5432)
+DATABASE = 'hw2'
+USER = 'postgres'
+PASSWORD = 1234
+HOST = 'localhost'
+PORT = 5432
+
+db = PostgresqlDatabase(database=DATABASE, user=USER, password=PASSWORD, host=HOST, port=PORT)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 
+class BaseModel(Model):
+    class Meta:
+        database = db
 
-class User(Model):
+class User(BaseModel, UserMixin):
     username = TextField(unique=True)
     password = TextField()
 
     @classmethod
-    def create_user(cls, username, password):
+    def create_user(cls, username, password, safe=True):
+        if safe:
+            check_user = cls.select().where(cls.username == username).exists()
+            if check_user:
+                return "user exists"
         user = cls.create(
             username=username,
-            password=password
+            password=generate_password_hash(password)
         )
         return user
 
     class Meta:
-        database = db
         db_table = 'user'
-        scheme = 'public'
+
+db.connect()
+db.create_tables([User], safe=True)
+
+User.create_user("ksylik", "1234", safe=True)
+db.close()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -54,7 +73,7 @@ def login():
         password = request.form['password']
         try:
             user = User.get(User.username == username)
-            if user and user.password == password:
+            if user and check_password_hash(user.password, password):
                 login_user(user)
                 return redirect(url_for('profile'))
             else:
@@ -70,7 +89,4 @@ def profile():
 
 
 if __name__ == '__main__':
-    db.connect()
-    db.create_tables([User], safe=True)
-    db.close()
     app.run(debug=True, host='localhost', port=5000)
